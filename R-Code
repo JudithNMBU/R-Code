@@ -1,0 +1,148 @@
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(data.table)
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(stringr)
+library(kableExtra)
+library(papeR)
+library(skimr)
+library(vtable)
+library(RColorBrewer)
+library(cowplot)
+library(readxl)
+library(writexl)
+library(suncalc)
+library(ggplot2)
+
+
+
+# set to English
+Sys.setlocale("LC_TIME", "en_US.UTF-8")
+
+
+
+CM_04 <- read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-04_meta.csv")
+CM_04$SITE <- "CM_04" # add column with site name
+CM_04 <- CM_04 %>% # add column with month, date is already recognized as such
+  mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
+
+
+
+CM_05 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-05_meta.csv")
+CM_05$SITE <- "CM_05" # add column with site name
+CM_05 <- CM_05 %>% # add column with month, date is already recognized as such
+  mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
+
+
+
+CM_06 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-06_meta.csv")
+CM_06$SITE <- "CM_06" # add column with site name
+CM_06 <- CM_06 %>% # add column with month, date is already recognized as such
+  mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
+
+
+
+CM_21 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-21_meta.csv")
+CM_21$SITE <- "CM_21" # add column with site name
+CM_21 <- CM_21 %>% # add column with month, date is already recognized as such
+  mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
+
+
+
+CM_23 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-23_meta.csv")
+CM_23$SITE <- "CM_23" # add column with site name
+CM_23 <- CM_23 %>% # add column with month, date is already recognized as such
+  mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
+
+
+
+CM_42 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-42_meta.csv")
+CM_42$SITE <- "CM_42" # add column with site name
+CM_42 <- CM_42 %>% # add column with month, date is already recognized as such
+  mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
+
+
+# combine all files into one csv
+allCM <- rbind(CM_04, CM_05, CM_06, CM_21,
+                  CM_23, CM_42)
+
+View(allCM)
+
+
+# Clearing the behavioral information (replace with Reeds code) 
+valid_codes <- c("NNOC", "ENIL", "VMUR", "PNAT", "PPYG",
+                 "MDAU", "MMYS", "MYSP", "PISP", "PAUR",
+                 "NYCT", "NoID", "Noise", "?")
+
+allCM <- allCM %>%
+  mutate(
+    SPECIES = sapply(`MANUAL ID*`, function(x) {
+      parts <- unlist(str_split(x, "_"))      
+      parts <- gsub("\\..*", "", parts)        
+      codes <- parts[parts %in% valid_codes]   
+      if (length(codes) == 0) {
+        return(NA)
+      } else {
+        return(paste(codes, collapse = "_"))   
+      }
+    })
+  ) %>%
+  separate_rows(SPECIES, sep = "_", convert = TRUE)
+
+
+#checking for wrong species' entries - found two, checked in Kaleidoscope and corrected them here 
+allCM %>%
+  count(SPECIES, sort = TRUE)
+allCM[5075, "SPECIES"] <- "Noise"
+allCM[41419, "SPECIES"] <- "MYSP"
+
+
+#make some columns into factors
+cols <- c("MONTH" ,  "AUTO ID", "SITE"  ,  "MANUAL ID*", "SPECIES")
+allCM[cols] <- lapply(allCM[cols], factor)
+
+
+
+
+#DATA EXPLORATION
+
+View(allCM)
+levels(allCM$SPECIES)
+
+# check differences in sampling size
+check1 <- table(allCM$SITE, allCM$MONTH)
+print(check1) 
+
+check2 <- table(allCM$SPECIES, allCM$SITE)
+print(check2) 
+
+# whats the sum of bat passes for each species (before and after manual ID)
+table(allCM$`AUTO ID`)
+table(allCM$SPECIES)
+
+
+# Change current table to matrix by reducing entries to present/absent format
+PRESENCE <- allCM %>% 
+  distinct(SITE, MONTH, SPECIES) %>%   
+  mutate(PRESENCE = 1) 
+
+# create matrix of (dis)similarity
+MATRIX <- PRESENCE %>% 
+  pivot_wider(
+    names_from = SPECIES,
+    values_from = PRESENCE,
+    values_fill = 0
+  )
+
+View(MATRIX)
+
+# Remove non-species
+MATRIX <- MATRIX[, !colnames(MATRIX) %in% c("Noise", "NoID", "?", "MYSP", "NYCT", "PISP")]
+
+View(MATRIX)
+
+# Calculate species richness
+richness <- rowSums(MATRIX[, -(1:2)] > 0)

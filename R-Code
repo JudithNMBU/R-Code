@@ -146,3 +146,10 @@ View(MATRIX)
 
 # Calculate species richness
 richness <- rowSums(MATRIX[, -(1:2)] > 0)
+
+# Change labels permanently 
+MATRIX$SITE <- factor(
+  MATRIX$SITE,
+  levels = c("CM_04", "CM_05", "CM_06", "CM_21", "CM_23", "CM_42"),
+  labels = c("CM-04", "CM-05", "CM-06", "CM-21", "CM-23", "CM-42")
+)

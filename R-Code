@@ -1,4 +1,10 @@
+
+#1 DATA PREPARATION #1
+
 library(dplyr)
+library(MetBrewer)
+library(hms)
+library(readr)
 library(stringr)
 library(tidyr)
 library(data.table)
@@ -21,6 +27,7 @@ library(ggplot2)
 
 # set to English
 Sys.setlocale("LC_TIME", "en_US.UTF-8")
+
 
 
 
@@ -65,91 +72,289 @@ CM_42 <- CM_42 %>% # add column with month, date is already recognized as such
   mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
 
 
+# fix column names
+CM_04 <- CM_04 %>% rename("MANUAL ID" = "MANUAL ID*")
+CM_05 <- CM_05 %>% rename("MANUAL ID" = "MANUAL ID*")
+CM_06 <- CM_06 %>% rename("MANUAL ID" = "MANUAL ID*")
+CM_21 <- CM_21 %>% rename("MANUAL ID" = "MANUAL ID*")
+CM_23 <- CM_23 %>% rename("MANUAL ID" = "MANUAL ID*")
+CM_42 <- CM_42 %>% rename("MANUAL ID" = "MANUAL ID*")
+
+
+
 # combine all files into one csv
 allCM <- rbind(CM_04, CM_05, CM_06, CM_21,
                   CM_23, CM_42)
 
-View(allCM)
+
+# check for spelling mistakes
+unique(allCM$`MANUAL ID`)
 
 
-# Clearing the behavioral information (replace with Reeds code) 
-valid_codes <- c("NNOC", "ENIL", "VMUR", "PNAT", "PPYG",
-                 "MDAU", "MMYS", "MYSP", "PISP", "PAUR",
-                 "NYCT", "NoID", "Noise", "?")
+# correct mistakes 
+allCM$`MANUAL ID`[is.na(allCM$`MANUAL ID`)] <- "Noise"
 
 allCM <- allCM %>%
-  mutate(
-    SPECIES = sapply(`MANUAL ID*`, function(x) {
-      parts <- unlist(str_split(x, "_"))      
-      parts <- gsub("\\..*", "", parts)        
-      codes <- parts[parts %in% valid_codes]   
-      if (length(codes) == 0) {
-        return(NA)
-      } else {
-        return(paste(codes, collapse = "_"))   
-      }
-    })
-  ) %>%
-  separate_rows(SPECIES, sep = "_", convert = TRUE)
+  mutate(`MANUAL ID` = dplyr::recode(`MANUAL ID`, 
+                                     "NYCZ_PNAT_PPYG.T" = "NYCT_PNAT_PPYG.T",
+                                     "ENIL_PSIP.T" = "ENIL_PISP.T",
+                                     "NYCT_PSIP.T" = "NYCT_PISP.T",
+                                     "MYSP:b" = "MYSP.B",
+                                     "PPYG.B.T.ENIL"    = "PPYG.B.T_ENIL",
+                                     "PNAT.PPYG.T"      = "PNAT_PPYG.T",
+                                     "ENIL_PNAT._PPYG"  = "ENIL_PNAT_PPYG",
+                                     "ENIL_PNAT.B_PPYG." = "ENIL_PNAT.B_PPYG",
+                                     "NYCT_ENIL.B_PISP..T" = "NYCT_ENIL.B_PISP.T",
+                                     "ENIL_PPYG_PISP_T" = "ENIL_PPYG_PISP.T" ))
 
 
-#checking for wrong species' entries - found two, checked in Kaleidoscope and corrected them here 
-allCM %>%
-  count(SPECIES, sort = TRUE)
-allCM[5075, "SPECIES"] <- "Noise"
-allCM[41419, "SPECIES"] <- "MYSP"
+# Check for duplicates
+test <- allCM %>%
+  dplyr::group_by(`IN FILE`) %>%
+  dplyr::summarise(n = dplyr::n()) %>%
+  dplyr::filter(n > 1) %>%
+  dplyr::arrange(desc(n))
+#no duplicates
 
 
-#make some columns into factors
-cols <- c("MONTH" ,  "AUTO ID", "SITE"  ,  "MANUAL ID*", "SPECIES")
-allCM[cols] <- lapply(allCM[cols], factor)
+# separate bat passes and behavior
 
+mcols <- c("manual_pass1", "manual_pass2", "manual_pass3")
 
-
-
-#DATA EXPLORATION
-
-View(allCM)
-levels(allCM$SPECIES)
-
-# check differences in sampling size
-check1 <- table(allCM$SITE, allCM$MONTH)
-print(check1) 
-
-check2 <- table(allCM$SPECIES, allCM$SITE)
-print(check2) 
-
-# whats the sum of bat passes for each species (before and after manual ID)
-table(allCM$`AUTO ID`)
-table(allCM$SPECIES)
-
-
-# Change current table to matrix by reducing entries to present/absent format
-PRESENCE <- allCM %>% 
-  distinct(SITE, MONTH, SPECIES) %>%   
-  mutate(PRESENCE = 1) 
-
-# create matrix of (dis)similarity
-MATRIX <- PRESENCE %>% 
-  pivot_wider(
-    names_from = SPECIES,
-    values_from = PRESENCE,
-    values_fill = 0
+df2 <- allCM %>% 
+  tidyr::separate(
+    col = `MANUAL ID`,
+    sep = "_",
+    into = mcols,
+    fill = "right"
   )
 
-View(MATRIX)
+bat2 <- df2 %>% 
+  select(manual_pass2, `IN FILE`) %>% 
+  drop_na() %>% 
+  rename(manual_pass = manual_pass2) %>% 
+  mutate(manual_pass = factor(manual_pass))
 
-# Remove non-species
-MATRIX <- MATRIX[, !colnames(MATRIX) %in% c("Noise", "NoID", "?", "MYSP", "NYCT", "PISP")]
+bat3 <- df2 %>% 
+  select(manual_pass3, `IN FILE`) %>% 
+  drop_na() %>%
+  rename(manual_pass = manual_pass3) %>% 
+  mutate(manual_pass = factor(manual_pass))
 
-View(MATRIX)
+mdf2 <- df2 %>% 
+  select(-c(manual_pass2, manual_pass3)) %>% 
+  rename(manual_pass = manual_pass1) %>% 
+  mutate(manual_pass = factor(manual_pass))
 
-# Calculate species richness
-richness <- rowSums(MATRIX[, -(1:2)] > 0)
+blist <- bat2$`IN FILE`
 
-# Change labels permanently 
-MATRIX$SITE <- factor(
-  MATRIX$SITE,
-  levels = c("CM_04", "CM_05", "CM_06", "CM_21", "CM_23", "CM_42"),
-  labels = c("CM-04", "CM-05", "CM-06", "CM-21", "CM-23", "CM-42")
-)
+timemap <- df2 %>% 
+  select(`IN FILE`,
+         DATE, TIME, HOUR, MONTH,
+         `DATE-12`,`TIME-12`,`HOUR-12`,
+         `AUTO ID`, SITE) %>% 
+  distinct() %>% 
+  filter(`IN FILE` %in% blist)
+
+bats2 <- left_join(bat2, timemap, by = "IN FILE")
+bats3 <- left_join(bat3, timemap, by = "IN FILE")
+
+mdf3 <- full_join(mdf2, bats2, by = c("manual_pass", "IN FILE", "SITE", "DATE", "TIME", "HOUR", "MONTH",
+                 "DATE-12", "TIME-12", "HOUR-12", "AUTO ID"))
+mdf4 <- full_join(mdf3, bats3, by = c("manual_pass", "IN FILE", "SITE", "DATE", "TIME", "HOUR", "MONTH",
+                                      "DATE-12", "TIME-12", "HOUR-12", "AUTO ID"))
+
+
+df5 <- mdf4 %>%
+  mutate(manualid = as.character(manual_pass)) %>% 
+  mutate(
+    behavior = case_when(
+      manualid == "Noise" ~ "Noise",
+      str_detect(manualid,"\\.T\\.B") ~ "Feeding",
+      str_detect(manualid,"\\.T\\.S\\.B") ~ "Feeding",
+      str_detect(manualid,"\\.B") ~ "Feeding",
+      str_detect(manualid,"\\.S") ~ "Social",
+      str_detect(manualid,"\\.T\\.S") ~ "Territorial",
+      str_detect(manualid,"\\.T") ~ "Territorial",
+      TRUE ~ "Commuting"
+    )
+  ) %>% 
+  mutate(
+    behavior = factor(behavior),
+    manualid = factor(manualid)
+  )
+
+summary(df5$behavior)
+
+
+# remove the behavior tags from the manual acoustic analysis column 
+
+df5$mid <- factor(gsub("\\..*", "", df5$manualid))
+
+
+# Some small issues to remedy here with how the gsub function was interpreted 
+df5 <- df5 %>% 
+  mutate(manual.id = mid) %>% 
+  dplyr::select(-c(
+    manual_pass, manualid, mid))
+
+
+summary(df_final$manual.id)
+
+
+# save csv
+write.csv(df_final, "df.csv")
+
+
+
+
+#2 DATA EXPLORATION #2
+
+
+
+#upload csv files
+cm <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/df.csv")
+missing_dates <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/Missing_dates_2024.csv",
+                         sep = ";",
+                         stringsAsFactors = FALSE)
+
+
+# change _ to - in cm
+cm$SITE <- gsub("_", "-", cm$SITE)
+
+# confirm date format
+missing_dates$Date <- as.Date(missing_dates$ExpectedDate, format = "%d.%m.%Y")
+cm$DATE.12 <- as.Date(cm$DATE.12)
+
+# reduce "missing dates" to 6 sites
+reduced_sites <- unique(cm$SITE)
+missing_dates <- missing_dates[missing_dates$Site %in% reduced_sites, ]
+
+
+
+#1 Observed and Missing Dates for 2024
+
+available <- cm %>%
+  select(SITE, DATE.12) %>%
+  distinct() %>%
+  rename(Date = DATE.12) %>%
+  mutate(Type = "Observed")
+
+missing <- missing_dates %>%
+  select(Site, Date) %>%
+  filter(!is.na(Date)) %>%
+  rename(SITE = Site) %>% # Wir nennen es SITE wie in der anderen Tabelle
+  mutate(Type = "Missing")
+
+all_dates <- bind_rows(available, missing)
+
+ggplot(all_dates, aes(x = Date, y = SITE, color = Type)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("Observed" = "azure3", "Missing" = "red")) +
+  theme_minimal() +
+  labs(title = "Observed and Missing Dates for 2024")
+
+# no detections at CM-42 in the beginning of July?
+
+
+#2 Noise plot
+
+ggplot(cm) + 
+  geom_bar(aes(x = reorder(SITE, `manual.id` == "Noise", FUN = mean), 
+               fill = `manual.id` == "Noise"), 
+           position = "fill", width = 0.9) +
+  scale_fill_manual(name = "Manual ID", 
+                    values = c("TRUE" = "royalblue4", "FALSE" = "olivedrab3"), 
+                    labels = c("Bat", "Noise")) +
+  coord_flip() + 
+  theme_minimal() +
+  labs(x = "Site", y = "Proportion of recordings")
+
+
+
+#3 Nnumber and distribution of bat passes
+
+ggplot(cm %>% filter(`manual.id` != "Noise" & !is.na(`manual.id`))) + 
+  geom_bar(aes(x = reorder(SITE, SITE, length), fill = `manual.id`)) +
+  scale_fill_manual(name = "Species (Manual ID)", values = met.brewer("Signac", n = 13)) + 
+  coord_flip() + 
+  theme_minimal() +
+  labs(x = "Site", y = "Number of bat passes")
+
+
+
+#4.1 Species composition per site 
+
+ggplot(cm %>% filter(manual.id != "Noise" & !is.na(manual.id))) + 
+  geom_bar(aes(x = SITE, fill = manual.id), position = "fill", width = 0.8) +
+  scale_fill_manual(name = "Species (Manual ID)", values = met.brewer("Signac", n = 13)) +
+  ylab("Percentage") + xlab("Site") +
+  coord_flip() + 
+  theme_minimal()
+
+
+
+# 4.2 Species composition per month
+
+ggplot(cm %>% filter(manual.id != "Noise" & !is.na(manual.id))) + 
+  geom_bar(aes(x = MONTH, fill = manual.id), position = "fill", width = 0.7) +
+  scale_fill_manual(name = "Species (Manual ID)", values = met.brewer("Signac", n = 13)) +
+  ylab("Percentage") + xlab("Month") +
+  theme_minimal() +
+  labs(title = "Species Composition by Month (All Sites combined)")
+
+
+
+# 4.3 Species composition per site and month
+
+ggplot(cm %>% filter(manual.id != "Noise" & !is.na(manual.id))) + 
+  geom_bar(aes(x = SITE, fill = manual.id), position = "fill", width = 0.8) +
+  facet_wrap(~MONTH, nrow = 1) + 
+  scale_fill_manual(name = "Species (Manual ID)", values = met.brewer("Signac", n = 13)) +
+  ylab("Percentage") + xlab("Site") +
+  coord_flip() + 
+  theme_minimal() +
+  theme(legend.position = "bottom")
+  
+
+
+
+#5.1 Overall activity, each dot = one night
+
+ggplot(cm %>% filter(manual.id != "Noise"), aes(x = DATE.12)) + 
+  stat_count(geom = "point", size = 4, alpha = 0.7, color = "#3FA750") +
+  ylab("Number of bat passes per night") + xlab("Month") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  theme_minimal()
+
+
+#5.2 ENIL activity
+
+ggplot(cm %>% filter(manual.id == "ENIL"), aes(x = DATE.12)) + 
+  stat_count(geom = "point", size = 4, alpha = 0.7, color = "royalblue") +
+  ggtitle("ENIL activity (Manual ID)") +
+  theme_minimal()
+
+
+#5.3 PNAT activity
+
+ggplot(cm %>% filter(manual.id == "PNAT"), aes(x = DATE.12)) + 
+  stat_count(geom = "point", size = 4, alpha = 0.7, color = "royalblue") +
+  ggtitle("PNAT activity (Manual ID)") +
+  theme_minimal()
+
+
+
+#6 Activity levels during the night
+
+ggplot(cm) +
+  aes(x = HOUR.12) +
+  geom_histogram(bins = 30L, fill = "#112446") +
+  theme_minimal() +
+  facet_wrap(vars(SITE))
+
+  ggplot (cm)+
+  aes(x = HOUR.12) +
+  geom_histogram(bins = 30, fill = "#112446") +
+  theme_minimal() +
+  facet_wrap(vars(MONTH))

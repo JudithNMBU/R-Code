@@ -243,7 +243,7 @@ available <- cm %>%
 missing <- missing_dates %>%
   select(Site, Date) %>%
   filter(!is.na(Date)) %>%
-  rename(SITE = Site) %>% # Wir nennen es SITE wie in der anderen Tabelle
+  rename(SITE = Site) %>%
   mutate(Type = "Missing")
 
 all_dates <- bind_rows(available, missing)

@@ -1,11 +1,6 @@
 
-#1 DATA PREPARATION #1
+#1# DATA PREPARATION #1#
 
-library(dplyr)
-library(MetBrewer)
-library(hms)
-library(readr)
-library(stringr)
 library(tidyr)
 library(data.table)
 library(tidyverse)
@@ -22,6 +17,7 @@ library(readxl)
 library(writexl)
 library(suncalc)
 library(ggplot2)
+library(vegan)
 
 
 
@@ -126,8 +122,7 @@ df2 <- allCM %>%
     col = `MANUAL ID`,
     sep = "_",
     into = mcols,
-    fill = "right"
-  )
+    fill = "right")
 
 bat2 <- df2 %>% 
   select(manual_pass2, `IN FILE`) %>% 
@@ -176,13 +171,10 @@ df5 <- mdf4 %>%
       str_detect(manualid,"\\.S") ~ "Social",
       str_detect(manualid,"\\.T\\.S") ~ "Territorial",
       str_detect(manualid,"\\.T") ~ "Territorial",
-      TRUE ~ "Commuting"
-    )
-  ) %>% 
+      TRUE ~ "Commuting")) %>% 
   mutate(
     behavior = factor(behavior),
-    manualid = factor(manualid)
-  )
+    manualid = factor(manualid))
 
 summary(df5$behavior)
 
@@ -192,15 +184,13 @@ summary(df5$behavior)
 df5$mid <- factor(gsub("\\..*", "", df5$manualid))
 
 
-# Some small issues to remedy
-df5 <- df5 %>% 
+# Some small issues to remedy here with how the gsub function was interpreted 
+df_final <- df5 %>% 
   mutate(manual.id = mid) %>% 
   dplyr::select(-c(
     manual_pass, manualid, mid))
 
-
-summary(df_final$manual.id)
-
+View(df_final)
 
 # save csv
 write.csv(df_final, "df.csv")
@@ -208,7 +198,8 @@ write.csv(df_final, "df.csv")
 
 
 
-#2 DATA EXPLORATION #2
+
+#2# DATA EXPLORATION #2#
 
 
 
@@ -222,14 +213,45 @@ missing_dates <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/S
 # change _ to - in cm
 cm$SITE <- gsub("_", "-", cm$SITE)
 
-# confirm date format
+
+# confirm formats
 missing_dates$Date <- as.Date(missing_dates$ExpectedDate, format = "%d.%m.%Y")
+
 cm$DATE.12 <- as.Date(cm$DATE.12)
+
+cm$MONTH <- factor(cm$MONTH,  levels = c("Jul", "Aug", "Sep"))
+
+cm$SITE <- factor(cm$SITE)
+
+cm$manual.id <- factor(cm$manual.id)
+
 
 # reduce "missing dates" to 6 sites
 reduced_sites <- unique(cm$SITE)
 missing_dates <- missing_dates[missing_dates$Site %in% reduced_sites, ]
 
+
+# set time frame
+start_date <- as.Date("2024-07-01")
+end_date   <- as.Date("2024-09-30")
+
+cm <- cm %>% 
+  filter(DATE.12 >= start_date & DATE.12 <= end_date)
+
+missing_dates <- missing_dates %>% 
+  filter(Date >= start_date & Date <= end_date)
+
+
+# check differences in sampling size
+check1 <- table(cm$SITE, cm$MONTH)
+print(check1) 
+
+check2 <- table(cm$manual.id, cm$SITE)
+print(check2) 
+
+# whats the sum of bat passes for each species (before and after manual ID)
+table(cm$AUTO.ID)
+table(cm$manual.id)
 
 
 #1 Observed and Missing Dates for 2024
@@ -247,6 +269,8 @@ missing <- missing_dates %>%
   mutate(Type = "Missing")
 
 all_dates <- bind_rows(available, missing)
+
+View(all_dates)
 
 ggplot(all_dates, aes(x = Date, y = SITE, color = Type)) +
   geom_point(size = 2) +
@@ -272,7 +296,7 @@ ggplot(cm) +
 
 
 
-#3 Nnumber and distribution of bat passes
+#3.1 Absolute number of bat passes per site
 
 ggplot(cm %>% filter(`manual.id` != "Noise" & !is.na(`manual.id`))) + 
   geom_bar(aes(x = reorder(SITE, SITE, length), fill = `manual.id`)) +
@@ -280,6 +304,17 @@ ggplot(cm %>% filter(`manual.id` != "Noise" & !is.na(`manual.id`))) +
   coord_flip() + 
   theme_minimal() +
   labs(x = "Site", y = "Number of bat passes")
+
+
+#3.2 Absolute number of bat passes per site and month
+
+ggplot(cm %>% filter(`manual.id` != "Noise" & !is.na(`manual.id`))) + 
+  geom_bar(aes(x = reorder(SITE, SITE, length), fill = `manual.id`), position = "stack", width = 0.8) +
+  scale_fill_manual(name = "Species (Manual ID)", values = met.brewer("Signac", n = 13)) + 
+  facet_wrap(~MONTH, nrow = 1) +
+  coord_flip() + 
+  theme_minimal() +
+  labs(x = "Site", y = "Number of bat passes") 
 
 
 
@@ -313,8 +348,7 @@ ggplot(cm %>% filter(manual.id != "Noise" & !is.na(manual.id))) +
   scale_fill_manual(name = "Species (Manual ID)", values = met.brewer("Signac", n = 13)) +
   ylab("Percentage") + xlab("Site") +
   coord_flip() + 
-  theme_minimal() +
-  theme(legend.position = "bottom")
+  theme_minimal() 
   
 
 
@@ -353,6 +387,7 @@ ggplot(cm) +
   theme_minimal() +
   facet_wrap(vars(SITE))
 
+
 #6.2 Activity levels during the night per month
 
   ggplot (cm)+
@@ -362,27 +397,184 @@ ggplot(cm) +
   facet_wrap(vars(MONTH))
   
   
-#7.1 behavior per site
-
-  ggplot(cm %>% 
-    filter(!is.na(behavior) & manual.id != "Noise")) +
+#7.1 Behavior per site
+  ggplot(cm %>%
+           filter(!is.na(behavior) & manual.id != "Noise")) +
     geom_bar(aes(x = SITE, fill = behavior), position = "fill", width = 0.8) +
     coord_flip() +
     ylab("Percentage") +
     xlab("Site") +
     theme_minimal() +
     scale_fill_manual(name = "Behavior", values = met.brewer("Signac"))
-
-
-#7.2 behavior per month
-
-  ggplot(cm %>% 
-    filter(!is.na(behavior) & manual.id != "Noise")) +
+  
+#7.2 Behavior per month
+  ggplot(cm %>%
+           filter(!is.na(behavior) & manual.id != "Noise")) +
     geom_bar(aes(x = MONTH, fill = behavior), position = "fill", width = 0.7) +
     ylab("Percentage") +
     xlab("Month") +
     theme_minimal() +
     scale_fill_manual(name = "Behavior", values = met.brewer("Signac"))
+    
+#7.3 Behavior per site and month
+  ggplot(cm %>% 
+           filter(!is.na(behavior) & manual.id != "Noise")) + 
+    geom_bar(aes(x = MONTH, fill = behavior), position = "fill", width = 0.8) +
+    facet_wrap(~ SITE, scales = "free_y") + 
+    ylab("Percentage") +
+    xlab("Month") +
+    theme_minimal() +
+    scale_fill_manual(name = "Behavior", values = met.brewer("Signac"))
+  
+  
+  
+  
+### Species richness plots ###
+  
+  
+# Change current table to matrix by reducing entries to present/absent format
+  PRESENCE <- cm %>% 
+    distinct(SITE, MONTH, manual.id) %>%   
+    mutate(PRESENCE = 1) 
+  
+  
+# Wider format with species names
+  MATRIX <- PRESENCE %>% 
+    pivot_wider(
+      names_from = manual.id,
+      values_from = PRESENCE,
+      values_fill = 0)
+  
+ 
+# Remove non-species
+  MATRIX <- MATRIX[, !colnames(MATRIX) %in% c("Noise", "NoID", "?", "MYSP", "NYCT", "PISP")]
+  
+  
+# Calculate species richness
+  richness <- rowSums(MATRIX[, -(1:2)] > 0)
+  
+  
+# matrix format
+  MATRIX$MONTH <- factor(
+    MATRIX$MONTH,
+    levels = c("Jul", "Aug", "Sep"))
+  
+  MATRIX$SITE <- factor(MATRIX$SITE)
+  
+  
+#1.1 Bar charts for species richness x Site
+  
+  means <- data.frame(
+    SITE = c("CM-04", "CM-05", "CM-06", "CM-21", "CM-23", "CM-42"),
+    mean_richness = c(3.33, 4, 3.33, 4.67, 4, 4.33))
+  
+  
+  ggplot(MATRIX, aes(x = MONTH, y = richness, fill = MONTH)) +
+    geom_col(color = "black", alpha = 1) +
+    
+    geom_text(aes(label = richness), 
+              position = position_stack(vjust = 0.5), 
+              color = "white", size = 3) +
+    
+    geom_hline(
+      data = means,
+      aes(yintercept = mean_richness),
+      linetype = "dashed",
+      color = "darkorange",
+      linewidth = 0.8) +
+    
+    scale_fill_viridis_d(option = "viridis", end = 0.5) +
+    labs(
+      x = "Month",
+      y = "Species Richness",
+      fill = "MONTH") +
+    facet_wrap(~SITE, scales = "fixed") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(axis.title = element_text(size = 9))
+  
+  
+#1.2 Bar charts for species richness x Month
+  
+  means2 <- data.frame(
+    MONTH = factor(c("Jul", "Aug", "Sep")),
+    mean_richness2 = c(3.5, 4.5, 3.83))
+  
+  
+  ggplot(MATRIX, aes(x = SITE, y = richness, fill = SITE)) +
+    geom_col(color = "black", alpha = 1) +
+    
+    geom_text(
+      aes(label = richness),
+      vjust = 1.3,
+      color = "white",
+      size = 3) +
+    
+    geom_hline(
+      data = means2,
+      aes(yintercept = mean_richness2),
+      linetype = "dashed",
+      color = "darkorange",
+      linewidth = 0.8) +
+    
+    scale_fill_viridis_d(option = "viridis", end = 0.5) +
+    labs(
+      x = "Lake site",
+      y = "Species richness",
+      fill = "Site") +
+    facet_wrap(~ MONTH, scales = "fixed") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.title = element_text(size = 9))
+  
+  
+### Species composition plots ###
+
+#2.1 Heatmap for species composition & lake site
+  long_MATRIX <- pivot_longer(
+    MATRIX,
+    cols = -(SITE:MONTH),
+    names_to = "SPECIES",
+    values_to = "presence")
+  
+  
+  ggplot(long_MATRIX, aes(MONTH, SPECIES, fill = factor(presence))) +
+    geom_tile(color = "black") +
+    facet_wrap(~ SITE) +
+    labs(
+      x = "Month",
+      y = "Species Composition") +
+    scale_fill_manual(
+      values = c("0" = "white", "1" = "#28ae80"),
+      name = "Presence") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1))+
+    theme(axis.title = element_text(size = 9))
+  
+  
+  
+#2.2 Heatmap for species composition & month
+  
+  ggplot(long_MATRIX, aes(SITE, SPECIES, fill = factor(presence))) +
+    geom_tile(color = "black") +
+    facet_wrap(~ MONTH) +
+    labs(
+      x = "Lake Site",
+      y = "Species") +
+    scale_fill_manual(
+      values = c("0" = "white", "1" = "#28ae80"),
+      name = "Presence") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.title = element_text(size = 9))
+  
+  
+
+
     
     
   

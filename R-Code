@@ -1,6 +1,11 @@
 
 #1# DATA PREPARATION #1#
 
+library(MetBrewer)
+library(hms)
+library(readr)
+library(dplyr)
+library(stringr)
 library(tidyr)
 library(data.table)
 library(tidyverse)
@@ -575,6 +580,150 @@ ggplot(cm) +
   
 
 
-    
+#3# PERMANOVA for relationship between species composition and month/site #3#
+
+
+#upload csv file
+df <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/df.csv")
+
+
+
+#potentially remove other undesirable categories
+df_clean <- df %>%
+  filter(
+    !is.na(manual.id),
+    !manual.id %in% c("?", "NoID", "Noise")) 
+
+
+# make table that counts bat passes per species, site and month
+comm <- df_clean %>% 
+  group_by(SITE, MONTH, manual.id) %>%
+  dplyr::summarize(passes = n(), .groups = "drop")
+
+
+# make that table into a wider format so that each species has their own column
+comm_matrix <- comm %>% 
+  pivot_wider(names_from = manual.id,
+              values_from = passes,
+              values_fill = 0)
+
+View(comm_matrix)
+
+#separate meta and community data
+meta <- comm_matrix %>% # separate site and month into columns
+  select(SITE, MONTH)
+
+data <- comm_matrix %>% # Site and month are not part of the table anymore so that only numbers remain
+  select(-SITE, -MONTH)
+
+
+# the extra columns for site&month is added 
+data <- as.data.frame(data) 
+row.names(data) <- paste(meta$SITE, meta$MONTH, sep = "_")
+
+
+# transform absolute into relative abundances (this is good because we have very different sample sizes) 
+comm_total <- decostand(data, method = "total") # alternatively use method = "hellinger" with square root to transform the data (reduces negative eigenvalues but handles not-original dissimilarities) 
+
+dist_bc <- vegdist(comm_total, method = "bray") # creates the distance/dissimilarity matrix
+
+
+# permutations
+adonis_res <- adonis2(
+  dist_bc ~ SITE + MONTH,
+  data = meta,
+  permutations = 999,
+  by = "margin") # margin: the effect of month already considers the effect of site and vice versa
+
+adonis_res
+
+
+
+## betadisper to test for unequal dispersion (PCoA)
+bd_month <- betadisper(dist_bc, meta$MONTH)
+permutest(bd_month)
+
+bd_site <- betadisper(dist_bc, meta$SITE)
+permutest(bd_site)
+#F and p values are fine
+
+#visual confirmation
+plot(bd_month) 
+plot(bd_site)
+
+
+
+## Ordination to visualize relative distances of samples
+
+nmds <- metaMDS(
+  comm_total,
+  distance = "bray",
+  k = 2,
+  trymax = 100)
+#stress value is fine
+
+scores_nmds <- as.data.frame(scores(nmds, display = "sites"))
+
+scores_nmds$sample <- rownames(scores_nmds)
+
+meta$sample <- paste(meta$SITE, meta$MONTH, sep = "_")
+
+scores_nmds <- left_join(
+  scores_nmds,
+  meta,
+  by = "sample")
+
+
+ggplot(scores_nmds, aes(x = NMDS1, y = NMDS2,
+                        color = MONTH, shape = SITE)) +
+  geom_point(size = 3) +
+  theme_bw() +
+  labs(title = "NMDS of species composition (Bray–Curtis)",
+       color = "Month",
+       shape = "Site")
+
+
+###trying to figure out which species are drivers
+
+##SIMPER
+
+sim_month <- simper(comm_total, meta$MONTH, permutations = 999)
+summary(sim_month)
+
+sim_site <- simper(comm_total, meta$SITE, permutations = 999)
+summary(sim_site)
+
+# calculate means per species for sites
+sim_list <- lapply(sim_site, function(x) 
+{ df <- as.data.frame(x)
+df$species <- rownames(df)
+return(df)})
+
+sim_all <- bind_rows(sim_list)
+
+sim_summary <- sim_all %>%
+  group_by(species) %>%
+  dplyr::summarize(mean_contribution = mean(average, na.rm = TRUE)) %>%
+  arrange(desc(mean_contribution))
+
+sim_summary
+
+aggregate(comm_total$ENIL, by = list(meta$SITE), mean)
+
+
+##ISA
+install.packages("indicspecies")
+library(indicspecies)
+
+isa_month <- multipatt(data, meta$MONTH,
+                       control = how(nperm = 999))
+
+summary(isa_month)
+
+isa_site <- multipatt(data, meta$SITE,
+                      control = how(nperm = 999))
+
+summary(isa_site)
+
     
   

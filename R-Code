@@ -580,7 +580,7 @@ ggplot(cm) +
   
 
 
-#3# PERMANOVA for relationship between species composition and month/site #3#
+#3# PERMANOVA for relationship between species composition and month&site&land use categories #3#
 
 
 #upload csv file
@@ -628,15 +628,32 @@ comm_total <- decostand(data, method = "total") # alternatively use method = "he
 dist_bc <- vegdist(comm_total, method = "bray") # creates the distance/dissimilarity matrix
 
 
-# permutations
-adonis_res <- adonis2(
+# add land use categories
+
+meta$LANDUSE[meta$SITE %in% c("CM_04","CM_06")] <- "Urban"
+meta$LANDUSE[meta$SITE %in% c("CM_05","CM_23")] <- "Agriculture"
+meta$LANDUSE[meta$SITE %in% c("CM_21","CM_42")] <- "Natural"
+
+meta$LANDUSE <- factor(meta$LANDUSE)
+
+
+# permanova month&site
+permanova1 <- adonis2(
   dist_bc ~ SITE + MONTH,
   data = meta,
   permutations = 999,
   by = "margin") # margin: the effect of month already considers the effect of site and vice versa
 
-adonis_res
+permanova1
 
+# permanova month&land use
+permanova2 <- adonis2(
+  dist_bc ~ LANDUSE + MONTH,
+  data = meta,
+  permutations = 999,
+  by = "margin")
+
+permanova2
 
 
 ## betadisper to test for unequal dispersion (PCoA)
@@ -645,11 +662,15 @@ permutest(bd_month)
 
 bd_site <- betadisper(dist_bc, meta$SITE)
 permutest(bd_site)
-#F and p values are fine
+
+bd_landuse <- betadisper(dist_bc, meta$LANDUSE)
+permutest (bd_landuse)
+
 
 #visual confirmation
 plot(bd_month) 
 plot(bd_site)
+plot(bd_landuse) 
 
 
 
@@ -673,7 +694,7 @@ scores_nmds <- left_join(
   meta,
   by = "sample")
 
-
+#month&site plot
 ggplot(scores_nmds, aes(x = NMDS1, y = NMDS2,
                         color = MONTH, shape = SITE)) +
   geom_point(size = 3) +
@@ -683,7 +704,21 @@ ggplot(scores_nmds, aes(x = NMDS1, y = NMDS2,
        shape = "Site")
 
 
-###trying to figure out which species are drivers
+#land use plot
+ggplot(scores_nmds,
+       aes(x = NMDS1, y = NMDS2,
+           color = LANDUSE)) +
+  geom_point(size = 4) +
+  stat_ellipse(aes(group = LANDUSE),
+               type = "t",
+               linewidth = 1) +
+  theme_bw() +
+  labs(title = "NMDS of species composition (Bray–Curtis)",
+       color = "Land Use")
+
+
+
+###trying to figure out which species are drivers for site & month
 
 ##SIMPER
 

@@ -200,10 +200,11 @@ deviance(poisson) / df.residual(poisson)
 
 #tried NB and adjusted k-value
 nb <- gam(
-  batpass ~ s(day, k = 29) + s(SITE, bs = "re"), #thin plate regression spline for day and random effect smooth for Site
+batpass ~ 
+    s(day, k = 28) + s(SITE, bs = "re"), 
   family = nb(), #negative binomial
   data = data_full,
-  method = "REML") # best option to avoid overfitting
+  method = "REML")
 
 
 #check residuals with Dharma
@@ -214,7 +215,6 @@ plot(res_nb)
 
 #check if k-value is appropriate (edf = effective degrees of freedom)
 gam.check(nb)
-# k is relatively close to 1 and p is insignificant
 
 
 # test for auto-correlation

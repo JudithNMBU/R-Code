@@ -32,42 +32,42 @@ Sys.setlocale("LC_TIME", "en_US.UTF-8")
 
 
 
-CM_04 <- read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-04_meta.csv")
+CM_04 <- read_csv("")
 CM_04$SITE <- "CM_04" # add column with site name
 CM_04 <- CM_04 %>% # add column with month, date is already recognized as such
   mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
 
 
 
-CM_05 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-05_meta.csv")
+CM_05 <-read_csv("")
 CM_05$SITE <- "CM_05" # add column with site name
 CM_05 <- CM_05 %>% # add column with month, date is already recognized as such
   mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
 
 
 
-CM_06 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-06_meta.csv")
+CM_06 <-read_csv("")
 CM_06$SITE <- "CM_06" # add column with site name
 CM_06 <- CM_06 %>% # add column with month, date is already recognized as such
   mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
 
 
 
-CM_21 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-21_meta.csv")
+CM_21 <-read_csv("")
 CM_21$SITE <- "CM_21" # add column with site name
 CM_21 <- CM_21 %>% # add column with month, date is already recognized as such
   mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
 
 
 
-CM_23 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-23_meta.csv")
+CM_23 <-read_csv("")
 CM_23$SITE <- "CM_23" # add column with site name
 CM_23 <- CM_23 %>% # add column with month, date is already recognized as such
   mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
 
 
 
-CM_42 <-read_csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Data prep/CM-42_meta.csv")
+CM_42 <-read_csv("")
 CM_42$SITE <- "CM_42" # add column with site name
 CM_42 <- CM_42 %>% # add column with month, date is already recognized as such
   mutate(MONTH = month(DATE, label = TRUE, abbr = TRUE))
@@ -209,8 +209,8 @@ write.csv(df_final, "df.csv")
 
 
 #upload csv files
-cm <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/df.csv")
-missing_dates <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/Missing_dates_2024.csv",
+cm <- read.csv("")
+missing_dates <- read.csv("",
                          sep = ";",
                          stringsAsFactors = FALSE)
 

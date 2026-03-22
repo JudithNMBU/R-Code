@@ -580,47 +580,46 @@ ggplot(cm) +
   
 
 
-#3# PERMANOVA for relationship between species composition and month&site&land use categories #3#
+#3# PERMANOVA for relationship between species composition and month&site&urbanization #3#
 
 
 #upload csv file
-df <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/df.csv")
+df <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/final_cm.csv")
 
 
-
-#potentially remove other undesirable categories
+#PERMANOVA for relationship between species composition and month
 df_clean <- df %>%
   filter(
-    !is.na(manual.id),
-    !manual.id %in% c("?", "NoID", "Noise")) 
-
+    !is.na(final.id),
+    !final.id %in% c("?", "NoID", "Noise", "PISP"))
+  
 
 # make table that counts bat passes per species, site and month
 comm <- df_clean %>% 
-  group_by(SITE, MONTH, manual.id) %>%
+  group_by(SITE, MONTH, final.id) %>%
   dplyr::summarize(passes = n(), .groups = "drop")
 
 
 # make that table into a wider format so that each species has their own column
 comm_matrix <- comm %>% 
-  pivot_wider(names_from = manual.id,
+  pivot_wider(names_from = final.id,
               values_from = passes,
               values_fill = 0)
 
-View(comm_matrix)
 
 #separate meta and community data
 meta <- comm_matrix %>% # separate site and month into columns
   select(SITE, MONTH)
 
+meta$SITE  <- factor(meta$SITE)
+meta$MONTH <- factor(meta$MONTH)
+
 data <- comm_matrix %>% # Site and month are not part of the table anymore so that only numbers remain
   select(-SITE, -MONTH)
-
 
 # the extra columns for site&month is added 
 data <- as.data.frame(data) 
 row.names(data) <- paste(meta$SITE, meta$MONTH, sep = "_")
-
 
 # transform absolute into relative abundances (this is good because we have very different sample sizes) 
 comm_total <- decostand(data, method = "total") # alternatively use method = "hellinger" with square root to transform the data (reduces negative eigenvalues but handles not-original dissimilarities) 
@@ -628,54 +627,36 @@ comm_total <- decostand(data, method = "total") # alternatively use method = "he
 dist_bc <- vegdist(comm_total, method = "bray") # creates the distance/dissimilarity matrix
 
 
-# add land use categories
-
-meta$LANDUSE[meta$SITE %in% c("CM_04","CM_06")] <- "Urban"
-meta$LANDUSE[meta$SITE %in% c("CM_05","CM_23")] <- "Agriculture"
-meta$LANDUSE[meta$SITE %in% c("CM_21","CM_42")] <- "Natural"
-
-meta$LANDUSE <- factor(meta$LANDUSE)
 
 
-# permanova month&site
-permanova1 <- adonis2(
+# permutations
+permanova <- adonis2(
   dist_bc ~ SITE + MONTH,
   data = meta,
   permutations = 999,
   by = "margin") # margin: the effect of month already considers the effect of site and vice versa
 
-permanova1
-
-# permanova month&land use
-permanova2 <- adonis2(
-  dist_bc ~ LANDUSE + MONTH,
-  data = meta,
-  permutations = 999,
-  by = "margin")
-
-permanova2
+permanova
 
 
-## betadisper to test for unequal dispersion (PCoA)
+## betadisper to test the dispersion (PCoA)
 bd_month <- betadisper(dist_bc, meta$MONTH)
 permutest(bd_month)
+
 
 bd_site <- betadisper(dist_bc, meta$SITE)
 permutest(bd_site)
 
-bd_landuse <- betadisper(dist_bc, meta$LANDUSE)
-permutest (bd_landuse)
+#F and p values are fine
 
-
-#visual confirmation
-plot(bd_month) 
+plot(bd_month) # visual confirmation with PCoA
 plot(bd_site)
-plot(bd_landuse) 
+
+    
+  
 
 
-
-## Ordination to visualize relative distances of samples
-
+## NMDS Ordination
 nmds <- metaMDS(
   comm_total,
   distance = "bray",
@@ -694,71 +675,34 @@ scores_nmds <- left_join(
   meta,
   by = "sample")
 
-#month&site plot
-ggplot(scores_nmds, aes(x = NMDS1, y = NMDS2,
-                        color = MONTH, shape = SITE)) +
-  geom_point(size = 3) +
-  theme_bw() +
-  labs(title = "NMDS of species composition (Bray–Curtis)",
-       color = "Month",
-       shape = "Site")
 
 
-#land use plot
-ggplot(scores_nmds,
-       aes(x = NMDS1, y = NMDS2,
-           color = LANDUSE)) +
-  geom_point(size = 4) +
-  stat_ellipse(aes(group = LANDUSE),
-               type = "t",
-               linewidth = 1) +
-  theme_bw() +
-  labs(title = "NMDS of species composition (Bray–Curtis)",
-       color = "Land Use")
+#NMDS plot
+scores_nmds$MONTH <- factor(scores_nmds$MONTH,
+                            levels = c("Jul", "Aug", "Sep"))
+
+ggplot(scores_nmds, aes(NMDS1, NMDS2, color = MONTH, shape = SITE)) +
+  stat_ellipse(aes(group = MONTH), linewidth = 0.9, alpha = 0.3) +
+  geom_point(size = 3.5) +
+  coord_equal() +
+  scale_color_manual(
+    name = "Month",
+    values = met.brewer("Renoir", n = length(unique(scores_nmds$MONTH)))
+  ) +
+  theme_minimal(base_size = 14)
 
 
 
-###trying to figure out which species are drivers for site & month
-
-##SIMPER
-
-sim_month <- simper(comm_total, meta$MONTH, permutations = 999)
-summary(sim_month)
-
-sim_site <- simper(comm_total, meta$SITE, permutations = 999)
-summary(sim_site)
-
-# calculate means per species for sites
-sim_list <- lapply(sim_site, function(x) 
-{ df <- as.data.frame(x)
-df$species <- rownames(df)
-return(df)})
-
-sim_all <- bind_rows(sim_list)
-
-sim_summary <- sim_all %>%
-  group_by(species) %>%
-  dplyr::summarize(mean_contribution = mean(average, na.rm = TRUE)) %>%
-  arrange(desc(mean_contribution))
-
-sim_summary
-
-aggregate(comm_total$ENIL, by = list(meta$SITE), mean)
-
-
-##ISA
-install.packages("indicspecies")
-library(indicspecies)
-
+#ISA
 isa_month <- multipatt(data, meta$MONTH,
                        control = how(nperm = 999))
 
 summary(isa_month)
 
-isa_site <- multipatt(data, meta$SITE,
-                      control = how(nperm = 999))
 
-summary(isa_site)
 
-    
-  
+#SIMPER
+
+# SIMPER for MONTH
+sim_month <- simper(comm_total, meta$MONTH, permutations = 999)
+summary(sim_month)

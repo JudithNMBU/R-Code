@@ -737,6 +737,14 @@ permutest(bd_month)
 
 
 
+#ISA
+isa_urban <- multipatt(data, meta$Urban_percent,
+                       control = how(nperm = 999))
+
+summary(isa_urban)
+
+
+
 
 
 

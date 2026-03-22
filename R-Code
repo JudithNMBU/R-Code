@@ -706,3 +706,45 @@ summary(isa_month)
 # SIMPER for MONTH
 sim_month <- simper(comm_total, meta$MONTH, permutations = 999)
 summary(sim_month)
+
+
+
+# URBANIZATION#
+
+#add percentages fpr urbanization
+meta$Urban_percent <- NA
+
+meta$Urban_percent[meta$SITE == "CM-04"] <- 52
+meta$Urban_percent[meta$SITE == "CM-05"] <- 11
+meta$Urban_percent[meta$SITE == "CM-06"] <- 69
+meta$Urban_percent[meta$SITE == "CM-21"] <- 1
+meta$Urban_percent[meta$SITE == "CM-23"] <- 9
+meta$Urban_percent[meta$SITE == "CM-42"] <- 1
+
+permanova2 <- adonis2(
+  dist_bc ~ Urban_percent + MONTH,
+  data = meta,
+  permutations = perm,
+  by = "margin")
+
+permanova2
+
+
+
+#betadisper not necessary for urbanization because its a gradient
+bd_month <- betadisper(dist_bc, meta$MONTH)
+permutest(bd_month)
+
+
+
+
+
+
+
+
+
+
+
+
+
+

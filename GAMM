@@ -47,7 +47,7 @@ enil_glm <- glm(
 summary(enil_glm)
 
 
-### DATA WRESTLE ###
+### DATA WRANGLE ###
 
 # calculates the match ratio cut-off by inverting the logistic regression
 get_cutoff <- function(p, model) {
@@ -125,119 +125,346 @@ table(combi_cm$auto.id) #newly added auto IDs
 
 
 
-### GAMM WITH PNAT ###
+
+
+GAMM FROM HERE ON 
+
+### GAMM PREP ###
+
+#upload csv files
+cm <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/final_cm.csv")
 
 # confirm date format and create the column night 
 cm$DATE.12 <- as.Date(cm$DATE.12)
 cm <- cm %>% 
   mutate(night = as.Date(DATE.12))
 
+# restrict timeline
+start_date <- as.Date("2024-07-01")
+end_date   <- as.Date("2024-09-30")
+cm <- cm %>%
+  filter(night >= start_date &
+           night <= end_date)
 
 
-# only PNAT, group by site&night, count n of bat passes
-pnat_nights <- cm %>%
-  filter(manual.id == "PNAT") %>%
+# create table of sampling nights (detector active)
+
+sampling_nights <- cm %>%
+  distinct(SITE, night, mean_temp, mean_wind)
+
+
+
+
+### GAMM ENIL ###
+
+
+### count bat passes per night ###
+
+enil_nights <- cm %>%
+  filter(final.id == "ENIL") %>%
   group_by(SITE, night) %>%
-  dplyr::summarize(batpass = n(), .groups = "drop")
+  dplyr::summarize(
+    batpass = n(),
+    .groups = "drop")
 
 
-# create timeline
-all_nights <- unique(cm$night)
+### combine sampling nights with bat passes ###
 
-#create a fully expanded grid with nights x site
-full_grid <- expand.grid(
-  SITE  = unique(cm$SITE),
-  night = all_nights)
-
-
-# insert pnat data
-data_full <- full_grid %>%
-  left_join(pnat_nights, by = c("SITE", "night"))
-# adds NAs which will be true zeroes
+data_full_enil <- sampling_nights %>%
+  left_join(enil_nights, by = c("SITE","night")) %>%
+  mutate(
+    batpass = ifelse(is.na(batpass), 0, batpass))
 
 
-# insert true zeroes into grid
-data_full$batpass[
-  is.na(data_full$batpass)
-] <- 0
+### prepare variables for GAMM ###
 
-View(data_full)
+data_full_enil <- data_full_enil %>%
+  mutate(
+    day = as.numeric(night - min(night)))
 
+data_full_enil$SITE <- as.factor(data_full_enil$SITE)
 
 
 ###fitting the model###
 
-# GAMM needs numeric dates
-data_full <- data_full %>%
-  mutate(
-    day = as.numeric(night - min(night)))
-
-data_full$SITE <- as.factor(data_full$SITE)
-
-
-#scatterplot
-ggplot(data_full, aes(x = day, y = batpass)) +
-  geom_point(alpha = 0.4) +
-  geom_smooth(method = "loess") +
-  labs(
-    x = "Night",
-    y = "PNAT bat passes per night")
-
-
 #try Poisson
-poisson <- gam(
+m_pois <- gam(
   batpass ~ 
     s(day, k = 10) +
     s(SITE, bs = "re"),
   family = poisson,
-  data = data_full,
+  data = data_full_enil,
   method = "REML")
 
 #check overdipersion
-deviance(poisson) / df.residual(poisson)
-#that's a lot of overdispersion, move on to NB
+deviance(m_pois) / df.residual(m_pois)
+#that's a lot of overdispersion, move on to NB/TW
 
-
-#tried NB and adjusted k-value
-nb <- gam(
-batpass ~ 
-    s(day, k = 28) + s(SITE, bs = "re"), 
-  family = nb(), #negative binomial
-  data = data_full,
+#Tweedie
+GAMM_enil <- gam(
+  batpass ~ 
+    s(day, bs = "gp", k = 15) +
+    mean_temp +           
+    mean_wind +
+    s(SITE, bs = "re"),
+  family = tw(),
+  data = data_full_enil,
   method = "REML")
 
 
 #check residuals with Dharma
-res_nb <- simulateResiduals(nb)
-plot(res_nb)
-#left plot looks good but waves on the right side should optimally be straight
+residuals_enil <- simulateResiduals(GAMM_enil)
+plot(residuals_enil)
+# waves on the right side should optimally be straight
 
 
 #check if k-value is appropriate (edf = effective degrees of freedom)
-gam.check(nb)
+gam.check(GAMM_enil)
+# k should be relatively close to 1 and p insignificant
 
 
 # test for auto-correlation
-acf(residuals(nb))
+acf(residuals(GAMM_enil))
 # no auto-correlation
 
 
-testZeroInflation(res_nb)
+testZeroInflation(residuals_enil)
 # no zero inflation
 
 
-# is there a significant seasonal trend?
-summary(nb)
+summary(GAMM_enil)
+
+
+
+
+
+### PPYG ###
+
+### count bat passes per night ###
+
+ppyg_nights <- cm %>%
+  filter(final.id == "PPYG") %>%
+  group_by(SITE, night) %>%
+  dplyr::summarize(
+    batpass = n(),
+    .groups = "drop")
+
+
+### combine sampling nights with bat passes ###
+
+data_full_ppyg <- sampling_nights %>%
+  left_join(ppyg_nights, by = c("SITE","night")) %>%
+  mutate(
+    batpass = ifelse(is.na(batpass), 0, batpass))
+
+
+### prepare variables for GAMM ###
+
+data_full_ppyg <- data_full_ppyg %>%
+  mutate(
+    day = as.numeric(night - min(night)))
+
+data_full_ppyg$SITE <- as.factor(data_full_ppyg$SITE)
+
+
+#NB
+GAMM_ppyg <- gam(
+  batpass ~ 
+    s(day, bs = "gp", k = 15) +
+    s(mean_temp, k = 5) +               
+    s(mean_wind, k = 5) + 
+    s(SITE, bs = "re"),
+  family = nb(),
+  data = data_full_ppyg,
+  method = "REML")
+
+#check residuals with Dharma
+residuals_ppyg <- simulateResiduals(GAMM_ppyg)
+plot(residuals_ppyg)
+# waves on the right side should optimally be straight
+
+#check if k-value is appropriate (edf = effective degrees of freedom)
+gam.check(GAMM_ppyg)
+# k is relatively close to 1 and p is insignificant
+
+# test for auto-correlation
+acf(residuals(GAMM_ppyg))
+# no auto-correlation
+
+testZeroInflation(residuals_ppyg)
+# no zero inflation
+
+summary(GAMM_ppyg)
+
+
+
+
+
+### MYSP ###
+
+
+
+### count bat passes per night ###
+
+mysp_nights <- cm %>%
+  filter(final.id == "MYSP") %>%
+  group_by(SITE, night) %>%
+  dplyr::summarize(
+    batpass = n(),
+    .groups = "drop")
+
+
+### combine sampling nights with bat passes ###
+
+data_full_mysp <- sampling_nights %>%
+  left_join(mysp_nights, by = c("SITE","night")) %>%
+  mutate(
+    batpass = ifelse(is.na(batpass), 0, batpass))
+
+
+### prepare variables for GAMM ###
+
+data_full_mysp <- data_full_mysp %>%
+  mutate(
+    day = as.numeric(night - min(night)))
+
+data_full_mysp$SITE <- as.factor(data_full_mysp$SITE)
+
+
+#Tweedie
+GAMM_mysp <- gam(
+  batpass ~ 
+    s(day, bs = "gp", k = 15) +
+    mean_temp +               
+    mean_wind + 
+    s(SITE, bs = "re"),
+  family = tw(),
+  data = data_full_mysp,
+  method = "REML")
+
+
+#check residuals with Dharma
+residuals_mysp <- simulateResiduals(GAMM_mysp)
+plot(residuals_mysp)
+# waves on the right side should optimally be straight
+
+
+#check if k-value is appropriate (edf = effective degrees of freedom)
+gam.check(GAMM_mysp)
+# k is relatively close to 1 and p is insignificant
+
+
+# test for auto-correlation
+acf(residuals(GAMM_mysp))
+# no auto-correlation
+
+
+testZeroInflation(residuals_mysp)
+# no zero inflation
+
+
+summary(GAMM_mysp)
+
+
+
+
+
+### PNAT ###
+
+### count bat passes per night ###
+
+pnat_nights <- cm %>%
+  filter(final.id == "PNAT") %>%
+  group_by(SITE, night) %>%
+  dplyr::summarize(
+    batpass = n(),
+    .groups = "drop")
+
+
+### combine sampling nights with bat passes ###
+
+data_full_pnat <- sampling_nights %>%
+  left_join(pnat_nights, by = c("SITE","night")) %>%
+  mutate(
+    batpass = ifelse(is.na(batpass), 0, batpass)
+  )
+
+
+### prepare variables for GAMM ###
+
+data_full_pnat <- data_full_pnat %>%
+  mutate(
+    day = as.numeric(night - min(night))
+  )
+
+data_full_pnat$SITE <- as.factor(data_full_pnat$SITE)
+
+
+
+GAMM_pnat <- gam( 
+  batpass ~ s(day, bs = "gp", k = 15) +
+    mean_temp +
+    mean_wind +
+    s(SITE, bs = "re"),
+    family = nb(),
+    data = data_full_pnat,
+    method = "REML")
+
+
+#check residuals with Dharma
+residuals_pnat <- simulateResiduals(GAMM_pnat)
+plot(residuals_pnat)
+# waves on the right side should optimally be straight
+
+
+#check if k-value is appropriate (edf = effective degrees of freedom)
+gam.check(GAMM_pnat)
+# k is relatively close to 1 and p is insignificant
+
+
+# test for auto-correlation
+acf(residuals(GAMM_pnat))
+# no auto-correlation
+
+
+testZeroInflation(residuals_pnat)
+# no zero inflation
+
+
+summary(GAMM_pnat)
+
 
 
 
 # Plot with mgcviz
-v_nb <- getViz(nb)
 
-plot(sm(v_nb, 1)) + 
-  l_fitLine(colour = "blue") + 
-  l_ciPoly(fill = "lightblue", alpha = 0.5) + 
-  l_rug() +
-  labs(title = "Seasonal Trend of PNAT Activity", 
-       x = "Day of Sampling Period", 
-       y = "Number of expected Bat Passes")
+
+
+viz1 <- getViz(GAMM_enil)
+viz2 <- getViz(GAMM_ppyg)
+viz3 <- getViz(GAMM_pnat)
+viz4 <- getViz(GAMM_mysp)
+
+
+p1 <- plot(sm(viz1, 1)) + l_fitLine(colour = "blue") + l_ciPoly(fill = "lightblue", alpha = 0.5) + 
+  l_rug() + labs(x = NULL, y = "Passes", title = "ENIL")
+
+p2 <- plot(sm(viz2, 1)) + l_fitLine(colour = "blue") + l_ciPoly(fill = "lightblue", alpha = 0.5) + 
+  l_rug() + labs(x = NULL, y = NULL, title = "PPYG")
+
+p3 <- plot(sm(viz3, 1)) + l_fitLine(colour = "blue") + l_ciPoly(fill = "lightblue", alpha = 0.5) + 
+  l_rug() + labs(x = "Day", y = "Passes", title = "PNAT")
+
+p4 <- plot(sm(viz4, 1)) + l_fitLine(colour = "blue") + l_ciPoly(fill = "lightblue", alpha = 0.5) + 
+  l_rug() + labs(x = "Day", y = NULL, title = "MYSP")
+
+
+
+
+gridPrint(p1, p2, p3, p4, ncol = 2)
+
+
+
+
+
+

@@ -25,17 +25,21 @@ Sys.setlocale("LC_TIME", "en_US.UTF-8")
 
 
 #upload csv files
-cm <- read.csv("")
-auto.data <- read.csv("")
+cm <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/df.csv")
+auto.data <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/JudithSites2024_all.csv")
+weather <- read.csv("C:/Users/HP 11TH GEN/Documents/Dokumente_/Master/MA/Statistics&R/Analysis/WeatherData2024.csv")
+
+cm$SITE <- gsub("_", "-", cm$SITE)
+
 
 
 #Logistic regression to determine cut-off, REPEAT WITH PPYG!!!
 
 enil_data <- cm %>%
-  filter(AUTO.ID == "EPTNIL") %>%
+  filter(AUTO.ID == "PIPPYG") %>%
   mutate(
     MATCH.RATIO = as.numeric(MATCH.RATIO),
-    correct = ifelse(manual.id == "ENIL", 1, 0)) %>%
+    correct = ifelse(manual.id == "PPYG", 1, 0)) %>%
   filter(!is.na(MATCH.RATIO))
 
 
@@ -46,8 +50,6 @@ enil_glm <- glm(
 
 summary(enil_glm)
 
-
-### DATA WRANGLE ###
 
 # calculates the match ratio cut-off by inverting the logistic regression
 get_cutoff <- function(p, model) {
@@ -64,19 +66,13 @@ loss_table <- data.frame(Probability = target_probs) %>%
   mutate(
     Cutoff_Ratio = pmin(
       sapply(Probability, get_cutoff, model = enil_glm),
-      1
-    ),
+      1),
     Calls_retained = sapply(Cutoff_Ratio, function(c) 
-      sum(enil_data$MATCH.RATIO >= c)
-    ),
+      sum(enil_data$MATCH.RATIO >= c)),
     Calls_lost = sapply(Cutoff_Ratio, function(c) 
-      sum(enil_data$MATCH.RATIO < c)
-    ),
+      sum(enil_data$MATCH.RATIO < c)),
     Percent_loss = round(
-      (Calls_lost / nrow(enil_data)) * 100, 
-      2
-    )
-  )
+      (Calls_lost / nrow(enil_data)) * 100, 2 ) )
 
 print(loss_table)
 
@@ -85,43 +81,156 @@ print(loss_table)
 # prep auto.data
 auto.reduced <- auto.data %>%
   select(OUT.FILE.FS, DATE, TIME, HOUR, DATE.12, TIME.12, HOUR.12,
-         AUTO.ID., site, MATCH.RATIO) %>%
+         AUTO.ID., SITE = site, MATCH.RATIO) %>% 
   rename(IN.FILE = OUT.FILE.FS) %>%
   mutate(
+    DATE.12 = as.Date(DATE.12),
+    MONTH = as.character(month(DATE.12, label = TRUE, abbr = TRUE)),
     MATCH.RATIO = as.numeric(MATCH.RATIO),
     auto.id = case_when(
       AUTO.ID. == "PIPPYG" ~ "PPYG",
       AUTO.ID. == "EPTNIL" ~ "ENIL",
-      TRUE ~ AUTO.ID.))
+      TRUE ~ AUTO.ID.)) %>%
+  filter(
+    DATE.12 >= as.Date("2024-07-01") &
+      DATE.12 <= as.Date("2024-09-30"))
 
-# define cut-offs
-cutoff_enil  <- 0.66
-cutoff_ppyg  <- 0.76
+taxa_counts <- auto.data %>%
+  count(AUTO.ID.) %>%
+  arrange(desc(n))
 
-#filter autoIDs for species and cut-off
+print(taxa_counts)
+
+
+cutoff_enil <- 0.66
+cutoff_ppyg <- 0.91
+
 auto.filtered <- auto.reduced %>%
   filter(
     (auto.id == "ENIL" & MATCH.RATIO >= cutoff_enil) |
       (auto.id == "PPYG" & MATCH.RATIO >= cutoff_ppyg))
 
-# remove manual IDs to avoid duplicates, insert remaining taxa from auto.id to final.id
+
 manual.files <- unique(cm$IN.FILE)
 
 auto.new <- auto.filtered %>%
   filter(!(IN.FILE %in% manual.files)) %>%
-  mutate(
-    final.id = auto.id)
+  mutate(final.id = auto.id)
 
-# add final.id and insert taxa from manual.id
 cm <- cm %>%
   mutate(
-    final.id = manual.id)
+    final.id = manual.id,
+    DATE.12 = as.Date(DATE.12))
 
-# combine
+
+cm$MONTH <- as.character(cm$MONTH)
+auto.new$MONTH <- as.character(auto.new$MONTH)
+
 combi_cm <- bind_rows(cm, auto.new)
 
-View(combi_cm)
-table(combi_cm$auto.id) #newly added auto IDs
+
+
+###WEATHER DATA
+
+# create a date
+weather_clean <- weather %>%
+  mutate(
+    year  = as.integer(year),
+    month = as.integer(month),
+    day   = as.integer(day),
+    hour  = as.integer(hour),
+    
+    # to utc
+    datetime_utc = make_datetime(year, month, day, hour, tz = "UTC"),
+    
+    # Oslo time
+    datetime_local = with_tz(datetime_utc, tz = "Europe/Oslo"),
+    
+    # shift by 12 hours
+    datetime_shifted = datetime_local - hours(12))
+
+# filter sites and date
+sites <- c("CM-04","CM-05","CM-06","CM-21","CM-23","CM-42")
+
+weather_filtered <- weather_clean %>%
+  filter(
+    name %in% sites,
+    datetime_shifted >= as.POSIXct("2024-07-01 00:00:00", tz = "Europe/Oslo"),
+    datetime_shifted <= as.POSIXct("2024-09-30 23:59:59"))
+
+# nightly means (it looks like daytime but since we shifted it its actually night time)
+weather_nightly <- weather_filtered %>%
+  filter(
+    hour(datetime_shifted) >= 6 &
+      hour(datetime_shifted) < 18
+  ) %>%
+  mutate(date = as.Date(datetime_shifted)) %>%
+  group_by(name, date) %>%
+  dplyr::summarize(
+    mean_temp = mean(air_temperature_2m, na.rm = TRUE),
+    mean_wind = mean(wind_speed_10m, na.rm = TRUE),
+    .groups = "drop")
+
+
+
+#JOIN
+
+weather_nightly <- weather_nightly %>%
+  rename(SITE = name,
+         DATE.12 = date)
+
+combi_cm$DATE.12 <- as.Date(combi_cm$DATE.12)
+weather_nightly$DATE.12 <- as.Date(weather_nightly$DATE.12)
+
+final_cm <- combi_cm %>%
+  left_join(weather_nightly, by =
+              c("SITE", "DATE.12"))
+
+final_cm <- final_cm %>%
+  filter(
+    DATE.12 >= as.Date("2024-07-01") &
+      DATE.12 <= as.Date("2024-09-30"))
+
+
+### some checks ###
+
+nrow(combi_cm)
+# 468771
+
+nrow(final_cm)
+#468400
+
+# discrepancy due to filtering the dates, see here
+combi_cm %>%
+  filter(
+    DATE.12 < as.Date("2024-07-01") |
+      DATE.12 > as.Date("2024-09-30")) %>%
+  nrow()
+# 371
+
+
+#see if IDs add up - yes!
+
+table(combi_cm$auto.id) 
+#ENIL   PPYG 
+#366328  51527 
+
+table(final_cm$manual.id)
+#?  ENIL  MDAU  MYSP  NNOC  NoID Noise  NYCT  PAUR  PISP  PNAT  PPYG 
+#104 16058     3  6431    26   355  2227  3279    27   407  7287 14340 
+#VMUR 
+#1 
+
+table(final_cm$final.id)
+# ?   ENIL   MDAU   MYSP   NNOC   NoID  Noise   NYCT   PAUR   PISP 
+#104 382386      3   6431     26    355   2227   3279     27    407 
+#PNAT   PPYG   VMUR 
+#7287  65867  
+
+
+write.csv(final_cm, "final_cm.csv")
+
+
 
 
 
